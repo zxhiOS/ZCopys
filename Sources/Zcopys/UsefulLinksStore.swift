@@ -122,8 +122,16 @@ final class UsefulLinksStore: ObservableObject {
 
     private static func defaultStorageURL() -> URL {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDirectory = directory.appendingPathComponent("mac_tool", isDirectory: true)
+        let appDirectory = directory.appendingPathComponent("Zcopys", isDirectory: true)
         try? FileManager.default.createDirectory(at: appDirectory, withIntermediateDirectories: true)
-        return appDirectory.appendingPathComponent("useful-links.json")
+        let url = appDirectory.appendingPathComponent("useful-links.json")
+        let legacy = directory
+            .appendingPathComponent("mac_tool", isDirectory: true)
+            .appendingPathComponent("useful-links.json")
+        if !FileManager.default.fileExists(atPath: url.path),
+           FileManager.default.fileExists(atPath: legacy.path) {
+            try? FileManager.default.copyItem(at: legacy, to: url)
+        }
+        return url
     }
 }

@@ -23,6 +23,9 @@ final class AppState: ObservableObject {
     let clipboardStore: ClipboardStore
     let usefulLinksStore: UsefulLinksStore
     var panelController: ClipboardPanelController?
+    /// App that was frontmost before the panel opened — paste target after selecting a card.
+    private var previousFrontmostApp: NSRunningApplication?
+    private var frontmostAppObserver: NSObjectProtocol?
     lazy var hotkeyMonitor = HotkeyMonitor { [weak self] in
         self?.showHistoryWindow()
     }
@@ -40,12 +43,16 @@ final class AppState: ObservableObject {
 
     init(
         clipboardStorageURL: URL? = nil,
-        usefulLinksStorageURL: URL? = nil
+        usefulLinksStorageURL: URL? = nil,
+        startMonitors: Bool = true
     ) {
         clipboardStore = ClipboardStore(storageURL: clipboardStorageURL)
         usefulLinksStore = UsefulLinksStore(storageURL: usefulLinksStorageURL)
-        isAccessibilityTrusted = hotkeyMonitor.isAccessibilityTrusted
-        startMonitoring()
+        if startMonitors {
+            isAccessibilityTrusted = hotkeyMonitor.isAccessibilityTrusted
+            startMonitoring()
+            observeFrontmostAppChanges()
+        }
     }
 
     func startMonitoring() {
@@ -54,6 +61,7 @@ final class AppState: ObservableObject {
     }
 
     func showHistoryWindow() {
+        rememberPreviousFrontmostApp()
         // 延迟 0.1s 等 NSMenu 完全关闭后再显示面板
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             guard let self else { return }
@@ -65,7 +73,10 @@ final class AppState: ObservableObject {
 
     func copyItemAndClose(_ item: ClipboardItem) {
         if clipboardStore.copyToClipboard(item) {
-            panelController?.closeWindow()
+            let insertText: String? = (item.kind == .text || item.kind == .url || item.kind == .other)
+                ? item.payload
+                : nil
+            closePanelAndPasteIntoPreviousApp(text: insertText)
         } else {
             showFeedback("无法复制此记录")
         }
@@ -121,7 +132,57 @@ final class AppState: ObservableObject {
             return
         }
         usefulLinksStore.markUsed(link)
+        closePanelAndPasteIntoPreviousApp(text: value)
+    }
+
+    private func rememberPreviousFrontmostApp() {
+        let front = NSWorkspace.shared.frontmostApplication
+        if let front, front.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+            previousFrontmostApp = front
+        }
+    }
+
+    private func observeFrontmostAppChanges() {
+        frontmostAppObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else {
+                return
+            }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if app.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+                    self.previousFrontmostApp = app
+                }
+            }
+        }
+    }
+
+    private func closePanelAndPasteIntoPreviousApp(text: String? = nil) {
+        refreshAccessibilityTrust()
+        let target = previousFrontmostApp
         panelController?.closeWindow()
+
+        // Do not NSApp.hide / prompt Accessibility here — that dismisses the
+        // system permission sheet and makes the toggle appear to "turn off".
+        guard isAccessibilityTrusted else {
+            if let target, target.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+                target.activate()
+            }
+            showFeedback("已复制，请按 ⌘V 粘贴")
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if let target, target.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+                target.activate()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                _ = PasteboardPaster.paste(textFallbackToKeystroke: text)
+            }
+        }
     }
 
     func addClipboardItemToUsefulLinks(_ item: ClipboardItem) {

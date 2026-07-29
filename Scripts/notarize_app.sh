@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_DIR="$ROOT_DIR/dist/mac_tool.app"
-ZIP_FILE="$ROOT_DIR/dist/mac_tool.zip"
+APP_DIR="$ROOT_DIR/dist/Zcopys.app"
+ZIP_FILE="$ROOT_DIR/dist/Zcopys.zip"
 KEYCHAIN_PROFILE="${NOTARYTOOL_PROFILE:-}"
 
 if [[ ! -d "$APP_DIR" ]]; then
@@ -13,7 +13,7 @@ fi
 
 if [[ -z "$KEYCHAIN_PROFILE" ]]; then
     echo "Set NOTARYTOOL_PROFILE to a saved notarytool keychain profile."
-    echo "Example: xcrun notarytool store-credentials \"mac_tool\" --apple-id ... --team-id ... --password ..."
+    echo "Example: xcrun notarytool store-credentials \"Zcopys\" --apple-id ... --team-id ... --password ..."
     exit 1
 fi
 

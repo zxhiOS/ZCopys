@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="mac_tool"
+APP_NAME="Zcopys"
 APP_DIR="$ROOT_DIR/dist/$APP_NAME.app"
 ZIP_FILE="$ROOT_DIR/dist/$APP_NAME.zip"
 DMG_FILE="$ROOT_DIR/dist/$APP_NAME.dmg"

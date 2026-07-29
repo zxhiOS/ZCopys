@@ -13,16 +13,24 @@ import SwiftUI
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(
-                systemSymbolName: "doc.on.clipboard",
-                accessibilityDescription: "mac_tool"
-            )
+            button.image = Self.statusBarImage()
             button.action = #selector(statusBarButtonClicked)
             button.target = self
         }
 
         // 启动测试数据
         appState.clipboardStore.addText("启动成功 ✓ — 复制文字即可记录")
+
+        // 用户在系统设置里授权后，刷新状态（不在启动时弹权限，避免反复打断）
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.appState.refreshAccessibilityTrust()
+            }
+        }
     }
 
     @objc private func statusBarButtonClicked() {
@@ -94,10 +102,34 @@ import SwiftUI
     @objc private func terminateApp() {
         NSApplication.shared.terminate(nil)
     }
+
+    private static func statusBarImage() -> NSImage {
+        let candidates: [URL?] = [
+            Bundle.module.url(forResource: "StatusBarIcon", withExtension: "png"),
+            Bundle.main.url(forResource: "StatusBarIcon", withExtension: "png"),
+            Bundle.main.resourceURL?.appendingPathComponent("StatusBarIcon.png")
+        ]
+
+        for case let url? in candidates {
+            if let image = NSImage(contentsOf: url) {
+                // Colored white-bg / gray-glyph asset — not a template
+                image.isTemplate = false
+                image.size = NSSize(width: 18, height: 18)
+                return image
+            }
+        }
+
+        let fallback = NSImage(
+            systemSymbolName: "arrow.triangle.2.circlepath",
+            accessibilityDescription: "Zcopys"
+        )!
+        fallback.isTemplate = true
+        return fallback
+    }
 }
 
 @main
-struct mac_toolApp: App {
+struct ZcopysApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {

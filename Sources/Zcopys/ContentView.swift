@@ -6,8 +6,14 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(.ultraThinMaterial)
+            UnevenRoundedRectangle(
+                topLeadingRadius: 22,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 22,
+                style: .continuous
+            )
+            .fill(.ultraThinMaterial)
 
             VStack(spacing: 0) {
                 topBar
@@ -40,11 +46,25 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(width: 1100, height: 420)
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: 22,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 22,
+                style: .continuous
+            )
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+            UnevenRoundedRectangle(
+                topLeadingRadius: 22,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 22,
+                style: .continuous
+            )
+            .strokeBorder(.white.opacity(0.12), lineWidth: 1)
         )
         .onAppear {
             appState.syncSelection()
@@ -154,7 +174,7 @@ struct ContentView: View {
                     .textFieldStyle(.plain)
                     .font(.system(size: 14, weight: .medium))
                     .focused($isSearchFocused)
-                    .frame(width: 180)
+                    .frame(minWidth: 160, idealWidth: 220, maxWidth: 320)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(
@@ -162,6 +182,11 @@ struct ContentView: View {
                             .fill(Color.primary.opacity(0.06))
                     )
                     .transition(.opacity.combined(with: .move(edge: .leading)))
+                    .onAppear {
+                        DispatchQueue.main.async {
+                            isSearchFocused = true
+                        }
+                    }
             }
         }
         .frame(minWidth: 28, alignment: .leading)

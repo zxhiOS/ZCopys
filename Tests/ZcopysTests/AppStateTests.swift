@@ -1,5 +1,5 @@
 import XCTest
-@testable import mac_tool
+@testable import Zcopys
 
 @MainActor
 final class AppStateTests: XCTestCase {
@@ -13,7 +13,8 @@ final class AppStateTests: XCTestCase {
             .appendingPathComponent("appstate-links-\(UUID().uuidString).json")
         appState = AppState(
             clipboardStorageURL: clipboardURL,
-            usefulLinksStorageURL: linksURL
+            usefulLinksStorageURL: linksURL,
+            startMonitors: false
         )
     }
 

@@ -3,25 +3,28 @@
 import PackageDescription
 
 let package = Package(
-    name: "mac_tool",
+    name: "Zcopys",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .executable(
-            name: "mac_tool",
-            targets: ["mac_tool"]
+            name: "Zcopys",
+            targets: ["Zcopys"]
         )
     ],
     targets: [
         .executableTarget(
-            name: "mac_tool",
-            path: "Sources/mac_tool"
+            name: "Zcopys",
+            path: "Sources/Zcopys",
+            resources: [
+                .process("Resources")
+            ]
         ),
         .testTarget(
-            name: "mac_toolTests",
-            dependencies: ["mac_tool"],
-            path: "Tests/mac_toolTests"
+            name: "ZcopysTests",
+            dependencies: ["Zcopys"],
+            path: "Tests/ZcopysTests"
         )
     ]
 )

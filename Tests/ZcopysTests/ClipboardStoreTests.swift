@@ -1,5 +1,5 @@
 import XCTest
-@testable import mac_tool
+@testable import Zcopys
 
 @MainActor
 final class ClipboardStoreTests: XCTestCase {
@@ -83,7 +83,7 @@ final class ClipboardStoreTests: XCTestCase {
 
     private func withStore(_ body: (ClipboardStore) -> Void) {
         let storageURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mac_tool-tests-\(UUID().uuidString).json")
+            .appendingPathComponent("Zcopys-tests-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: storageURL) }
         body(ClipboardStore(storageURL: storageURL))
     }

@@ -1,5 +1,5 @@
 import XCTest
-@testable import mac_tool
+@testable import Zcopys
 
 final class CardPresentationTests: XCTestCase {
     func testShellAllowlistUsesCommandTone() {

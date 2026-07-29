@@ -1,9 +1,15 @@
 import AppKit
 import SwiftUI
 
+/// Borderless floating panel that can still become key so TextFields accept typing.
+private final class KeyablePanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
 @MainActor
 final class ClipboardPanelController {
-    private let panel: NSPanel
+    private let panel: KeyablePanel
     private var keyMonitor: Any?
     private unowned let appState: AppState
 
@@ -13,9 +19,9 @@ final class ClipboardPanelController {
             .environmentObject(appState)
 
         let hostingController = NSHostingController(rootView: rootView)
-        panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 1100, height: 420),
-            styleMask: [.borderless, .fullSizeContentView, .nonactivatingPanel],
+        panel = KeyablePanel(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 400),
+            styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -28,15 +34,19 @@ final class ClipboardPanelController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
+        panel.becomesKeyOnlyIfNeeded = false
         installKeyMonitor()
     }
 
     func showWindow() {
-        if !panel.isVisible {
-            centerPanel()
-        }
+        layoutPanelAtBottomFullWidth()
         NSApplication.shared.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+        // Let SwiftUI mount the TextField, then request focus again.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.panel.makeKey()
+            self?.appState.shouldFocusSearch = true
+        }
     }
 
     func closeWindow() {
@@ -53,6 +63,26 @@ final class ClipboardPanelController {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self else { return event }
             guard self.panel.isVisible else { return event }
+
+            if self.isTextInputActive {
+                // While typing in search / editor, only handle Esc specially.
+                if event.keyCode == 53 {
+                    if self.appState.isLinkEditorPresented {
+                        self.appState.cancelLinkEditor()
+                        return nil
+                    }
+                    if self.appState.isSearchExpanded || !self.appState.searchText.isEmpty {
+                        self.appState.searchText = ""
+                        self.appState.isSearchExpanded = false
+                        self.appState.syncSelection()
+                        return nil
+                    }
+                    self.appState.clearSearch()
+                    self.closeWindow()
+                    return nil
+                }
+                return event
+            }
 
             if self.isTextCompositionActive {
                 return event
@@ -96,20 +126,31 @@ final class ClipboardPanelController {
         }
     }
 
-    private func centerPanel() {
+    private func layoutPanelAtBottomFullWidth() {
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else {
             return
         }
         let visibleFrame = screen.visibleFrame
-        let size = panel.frame.size
-        let origin = NSPoint(
-            x: visibleFrame.midX - size.width / 2,
-            y: visibleFrame.maxY - size.height - 60
+        let height: CGFloat = 400
+        let frame = NSRect(
+            x: visibleFrame.minX,
+            y: visibleFrame.minY,
+            width: visibleFrame.width,
+            height: height
         )
-        panel.setFrameOrigin(origin)
+        panel.setFrame(frame, display: true)
     }
 
     private var isTextCompositionActive: Bool {
         (panel.firstResponder as? NSTextView)?.hasMarkedText() ?? false
+    }
+
+    /// True when a text field / text view currently owns keyboard focus.
+    private var isTextInputActive: Bool {
+        if appState.isLinkEditorPresented { return true }
+        if let textView = panel.firstResponder as? NSTextView, textView.isEditable {
+            return true
+        }
+        return panel.firstResponder is NSTextField
     }
 }

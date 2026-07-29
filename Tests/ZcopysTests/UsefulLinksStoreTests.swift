@@ -1,5 +1,5 @@
 import XCTest
-@testable import mac_tool
+@testable import Zcopys
 
 @MainActor
 final class UsefulLinksStoreTests: XCTestCase {
@@ -81,7 +81,7 @@ final class UsefulLinksStoreTests: XCTestCase {
 
     private func withStore(_ body: (UsefulLinksStore) -> Void) {
         let storageURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mac_tool-links-\(UUID().uuidString).json")
+            .appendingPathComponent("Zcopys-links-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: storageURL) }
         body(UsefulLinksStore(storageURL: storageURL))
     }
