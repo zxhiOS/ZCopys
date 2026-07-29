@@ -416,7 +416,7 @@ struct HistoryCard: View {
                 .background(Color.white)
 
             HStack {
-                Text(CardPresentation.characterCountLabel(for: item.payload))
+                Text(CardPresentation.characterCountLabel(for: characterCountSource))
                 Spacer()
                 Label("\(index)", systemImage: "list.bullet.rectangle")
             }
@@ -433,6 +433,15 @@ struct HistoryCard: View {
                 .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
         )
         .shadow(color: .black.opacity(0.08), radius: 10, y: 4)
+    }
+
+    private var characterCountSource: String {
+        switch item.kind {
+        case .image:
+            return item.value
+        default:
+            return item.payload
+        }
     }
 
     private var headerIcon: String {

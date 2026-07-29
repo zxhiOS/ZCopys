@@ -13,9 +13,10 @@ final class UsefulLinksStore: ObservableObject {
         load()
     }
 
-    func add(title: String, urlOrText: String) {
+    @discardableResult
+    func add(title: String, urlOrText: String) -> Bool {
         let body = urlOrText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else { return }
+        guard !body.isEmpty else { return false }
         var resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if resolvedTitle.isEmpty {
             resolvedTitle = String(body.prefix(80))
@@ -26,27 +27,40 @@ final class UsefulLinksStore: ObservableObject {
             items[index].lastUsedAt = Date()
             sortItems()
             save()
-            return
+            return true
         }
 
         items.append(UsefulLink(title: resolvedTitle, urlOrText: body))
         sortItems()
         save()
+        return true
     }
 
-    func update(_ link: UsefulLink, title: String, urlOrText: String) {
+    @discardableResult
+    func update(_ link: UsefulLink, title: String, urlOrText: String) -> Bool {
         let body = urlOrText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else { return }
-        guard let index = items.firstIndex(where: { $0.id == link.id }) else { return }
+        guard !body.isEmpty else { return false }
+        guard let index = items.firstIndex(where: { $0.id == link.id }) else { return false }
         var resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if resolvedTitle.isEmpty {
             resolvedTitle = String(body.prefix(80))
         }
+
+        if let duplicateIndex = items.firstIndex(where: { $0.id != link.id && $0.urlOrText == body }) {
+            items[duplicateIndex].title = resolvedTitle
+            items[duplicateIndex].lastUsedAt = Date()
+            items.remove(at: index)
+            sortItems()
+            save()
+            return true
+        }
+
         items[index].title = resolvedTitle
         items[index].urlOrText = body
         items[index].lastUsedAt = Date()
         sortItems()
         save()
+        return true
     }
 
     func delete(_ link: UsefulLink) {

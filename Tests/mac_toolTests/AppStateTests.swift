@@ -108,4 +108,22 @@ final class AppStateTests: XCTestCase {
         XCTAssertTrue(appState.usefulLinksStore.items.isEmpty)
         XCTAssertFalse(appState.clipboardStore.items.isEmpty)
     }
+
+    func testSaveLinkEditorKeepsEditorOpenOnEmptyBody() {
+        appState.beginAddUsefulLink()
+        appState.linkEditorTitle = "Title"
+        appState.linkEditorBody = "   "
+        appState.saveLinkEditor()
+        XCTAssertTrue(appState.isLinkEditorPresented)
+        XCTAssertTrue(appState.usefulLinksStore.items.isEmpty)
+    }
+
+    func testSaveLinkEditorDismissesAfterSuccessfulAdd() {
+        appState.beginAddUsefulLink()
+        appState.linkEditorTitle = "Docs"
+        appState.linkEditorBody = "https://example.com"
+        appState.saveLinkEditor()
+        XCTAssertFalse(appState.isLinkEditorPresented)
+        XCTAssertEqual(appState.usefulLinksStore.items.count, 1)
+    }
 }

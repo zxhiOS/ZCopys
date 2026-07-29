@@ -58,6 +58,15 @@ final class ClipboardPanelController {
                 return event
             }
 
+            // Link editor owns left/right/Tab/Return; only Esc is intercepted.
+            if self.appState.isLinkEditorPresented {
+                if event.keyCode == 53 {
+                    self.appState.cancelLinkEditor()
+                    return nil
+                }
+                return event
+            }
+
             switch event.keyCode {
             case 123: // left
                 self.appState.moveSelection(left: true)
@@ -72,10 +81,6 @@ final class ClipboardPanelController {
                 self.appState.activateSelectedItem()
                 return nil
             case 53: // escape
-                if self.appState.isLinkEditorPresented {
-                    self.appState.cancelLinkEditor()
-                    return nil
-                }
                 if self.appState.isSearchExpanded || !self.appState.searchText.isEmpty {
                     self.appState.searchText = ""
                     self.appState.isSearchExpanded = false

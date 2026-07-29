@@ -144,12 +144,14 @@ final class AppState: ObservableObject {
     }
 
     func saveLinkEditor() {
+        let didSave: Bool
         if let editingLinkID,
            let link = usefulLinksStore.items.first(where: { $0.id == editingLinkID }) {
-            usefulLinksStore.update(link, title: linkEditorTitle, urlOrText: linkEditorBody)
+            didSave = usefulLinksStore.update(link, title: linkEditorTitle, urlOrText: linkEditorBody)
         } else {
-            usefulLinksStore.add(title: linkEditorTitle, urlOrText: linkEditorBody)
+            didSave = usefulLinksStore.add(title: linkEditorTitle, urlOrText: linkEditorBody)
         }
+        guard didSave else { return }
         cancelLinkEditor()
         syncSelection()
     }

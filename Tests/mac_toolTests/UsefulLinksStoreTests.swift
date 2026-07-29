@@ -28,6 +28,31 @@ final class UsefulLinksStoreTests: XCTestCase {
         }
     }
 
+    func testUpdateToDuplicateBodyMergesIntoExisting() {
+        withStore { store in
+            store.add(title: "A", urlOrText: "https://a.com")
+            store.add(title: "B", urlOrText: "https://b.com")
+            let editing = store.items.first { $0.urlOrText == "https://b.com" }!
+            let didUpdate = store.update(editing, title: "Merged", urlOrText: "https://a.com")
+            XCTAssertTrue(didUpdate)
+            XCTAssertEqual(store.items.count, 1)
+            XCTAssertEqual(store.items[0].urlOrText, "https://a.com")
+            XCTAssertEqual(store.items[0].title, "Merged")
+        }
+    }
+
+    func testUpdateRejectsEmptyBody() {
+        withStore { store in
+            store.add(title: "A", urlOrText: "https://a.com")
+            let link = store.items[0]
+            let didUpdate = store.update(link, title: "Keep", urlOrText: "   ")
+            XCTAssertFalse(didUpdate)
+            XCTAssertEqual(store.items.count, 1)
+            XCTAssertEqual(store.items[0].urlOrText, "https://a.com")
+            XCTAssertEqual(store.items[0].title, "A")
+        }
+    }
+
     func testPinnedItemsRemainAhead() {
         withStore { store in
             store.add(title: "pinned", urlOrText: "p")
