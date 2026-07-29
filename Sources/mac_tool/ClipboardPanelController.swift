@@ -59,17 +59,17 @@ final class ClipboardPanelController {
             }
 
             switch event.keyCode {
-            case 126: // up
-                self.appState.moveSelection(up: true)
+            case 123: // left
+                self.appState.moveSelection(left: true)
                 return nil
-            case 125: // down
-                self.appState.moveSelection(up: false)
+            case 124: // right
+                self.appState.moveSelection(left: false)
                 return nil
             case 48: // tab
-                self.appState.moveSelection(up: event.modifierFlags.contains(.shift))
+                self.appState.moveSelection(left: event.modifierFlags.contains(.shift))
                 return nil
             case 36: // return
-                self.appState.copySelectedItemAndClose()
+                self.appState.activateSelectedItem()
                 return nil
             case 53: // escape
                 self.appState.clearSearch()

@@ -7,12 +7,17 @@ final class AppStateTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        appState = AppState()
-        appState.clearHistory()
+        let clipboardURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("appstate-clipboard-\(UUID().uuidString).json")
+        let linksURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("appstate-links-\(UUID().uuidString).json")
+        appState = AppState(
+            clipboardStorageURL: clipboardURL,
+            usefulLinksStorageURL: linksURL
+        )
     }
 
     override func tearDown() {
-        appState.clearHistory()
         appState = nil
         super.tearDown()
     }
@@ -25,7 +30,7 @@ final class AppStateTests: XCTestCase {
         appState.clipboardStore.addText("C")
 
         appState.selectedItemID = nil
-        appState.moveSelection(up: false)
+        appState.moveSelection(left: false)
 
         let items = appState.clipboardStore.filteredItems(matching: "")
         XCTAssertEqual(appState.selectedItemID, items.first?.id)
@@ -37,7 +42,7 @@ final class AppStateTests: XCTestCase {
         appState.clipboardStore.addText("C")
 
         appState.selectedItemID = nil
-        appState.moveSelection(up: true)
+        appState.moveSelection(left: true)
 
         let items = appState.clipboardStore.filteredItems(matching: "")
         XCTAssertEqual(appState.selectedItemID, items.last?.id)
@@ -48,7 +53,7 @@ final class AppStateTests: XCTestCase {
         appState.selectedItemID = appState.clipboardStore.filteredItems(matching: "").first?.id
         appState.clearHistory()
 
-        appState.moveSelection(up: false)
+        appState.moveSelection(left: false)
 
         XCTAssertNil(appState.selectedItemID)
     }
@@ -59,7 +64,7 @@ final class AppStateTests: XCTestCase {
 
         let items = appState.clipboardStore.filteredItems(matching: "")
         appState.selectedItemID = items.first?.id
-        appState.moveSelection(up: true)
+        appState.moveSelection(left: true)
 
         XCTAssertEqual(appState.selectedItemID, items.first?.id)
     }
@@ -70,8 +75,37 @@ final class AppStateTests: XCTestCase {
 
         let items = appState.clipboardStore.filteredItems(matching: "")
         appState.selectedItemID = items.last?.id
-        appState.moveSelection(up: false)
+        appState.moveSelection(left: false)
 
         XCTAssertEqual(appState.selectedItemID, items.last?.id)
+    }
+
+    func testAddClipboardItemToUsefulLinks() {
+        appState.clipboardStore.addText("https://example.com")
+        let item = appState.clipboardStore.items[0]
+        appState.addClipboardItemToUsefulLinks(item)
+        XCTAssertEqual(appState.usefulLinksStore.items.count, 1)
+        XCTAssertEqual(appState.usefulLinksStore.items[0].urlOrText, item.payload)
+    }
+
+    func testMoveSelectionLeftRightOnClipboard() {
+        appState.selectedTab = .clipboard
+        appState.clipboardStore.addText("A")
+        appState.clipboardStore.addText("B")
+        let items = appState.clipboardStore.filteredItems(matching: "")
+        appState.selectedItemID = items.first?.id
+        appState.moveSelection(left: false)
+        XCTAssertEqual(appState.selectedItemID, items[1].id)
+        appState.moveSelection(left: true)
+        XCTAssertEqual(appState.selectedItemID, items[0].id)
+    }
+
+    func testClearCurrentTabClearsUsefulLinksOnly() {
+        appState.clipboardStore.addText("keep")
+        appState.usefulLinksStore.add(title: "x", urlOrText: "y")
+        appState.selectedTab = .usefulLinks
+        appState.clearCurrentTab()
+        XCTAssertTrue(appState.usefulLinksStore.items.isEmpty)
+        XCTAssertFalse(appState.clipboardStore.items.isEmpty)
     }
 }
