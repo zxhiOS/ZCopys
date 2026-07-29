@@ -14,7 +14,7 @@ final class ClipboardPanelController {
 
         let hostingController = NSHostingController(rootView: rootView)
         panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 1100, height: 420),
             styleMask: [.borderless, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -72,6 +72,16 @@ final class ClipboardPanelController {
                 self.appState.activateSelectedItem()
                 return nil
             case 53: // escape
+                if self.appState.isLinkEditorPresented {
+                    self.appState.cancelLinkEditor()
+                    return nil
+                }
+                if self.appState.isSearchExpanded || !self.appState.searchText.isEmpty {
+                    self.appState.searchText = ""
+                    self.appState.isSearchExpanded = false
+                    self.appState.syncSelection()
+                    return nil
+                }
                 self.appState.clearSearch()
                 self.closeWindow()
                 return nil
