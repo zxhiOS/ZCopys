@@ -66,9 +66,15 @@ final class AppState: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             guard let self else { return }
             self.panelController?.showWindow()
-            self.shouldFocusSearch = true
+            // Do not auto-focus search — that steals key focus from browser inputs
+            // (App Store Connect) and breaks auto-paste.
             self.syncSelection()
         }
+    }
+
+    /// Call when search / link editor needs keyboard input.
+    func requestTypingFocus() {
+        panelController?.makeKeyForTyping()
     }
 
     func copyItemAndClose(_ item: ClipboardItem) {
@@ -124,7 +130,6 @@ final class AppState: ObservableObject {
             panelController?.closeWindow()
             return
         }
-        NSApplication.shared.activate(ignoringOtherApps: true)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         guard pasteboard.setString(value, forType: .string) else {
@@ -163,26 +168,45 @@ final class AppState: ObservableObject {
     private func closePanelAndPasteIntoPreviousApp(text: String? = nil) {
         refreshAccessibilityTrust()
         let target = previousFrontmostApp
+        let strategy = PasteboardPaster.preferredStrategy(for: target)
         panelController?.closeWindow()
 
         // Do not NSApp.hide / prompt Accessibility here — that dismisses the
         // system permission sheet and makes the toggle appear to "turn off".
         guard isAccessibilityTrusted else {
-            if let target, target.processIdentifier != ProcessInfo.processInfo.processIdentifier {
-                target.activate()
-            }
+            activatePasteTarget(target)
             showFeedback("已复制，请按 ⌘V 粘贴")
             return
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            if let target, target.processIdentifier != ProcessInfo.processInfo.processIdentifier {
-                target.activate()
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                _ = PasteboardPaster.paste(textFallbackToKeystroke: text)
+        // Browsers need a slightly longer settle time after focus returns;
+        // native fields can paste sooner.
+        let activateDelay: TimeInterval = strategy == .keystrokeOnly ? 0.12 : 0.08
+        let pasteDelay: TimeInterval = strategy == .keystrokeOnly ? 0.28 : 0.18
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + activateDelay) { [weak self] in
+            guard let self else { return }
+            self.activatePasteTarget(target)
+            DispatchQueue.main.asyncAfter(deadline: .now() + pasteDelay) {
+                _ = PasteboardPaster.paste(
+                    textFallbackToKeystroke: text,
+                    into: target,
+                    strategy: strategy
+                )
             }
         }
+    }
+
+    private func activatePasteTarget(_ target: NSRunningApplication?) {
+        guard let target, target.processIdentifier != ProcessInfo.processInfo.processIdentifier else {
+            return
+        }
+        // Re-activating an already-frontmost Chromium app can drop the field's
+        // first responder — skip when we never stole focus (nonactivating panel).
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == target.processIdentifier {
+            return
+        }
+        target.activate(options: [.activateAllWindows])
     }
 
     func addClipboardItemToUsefulLinks(_ item: ClipboardItem) {
@@ -195,6 +219,7 @@ final class AppState: ObservableObject {
         linkEditorTitle = ""
         linkEditorBody = ""
         isLinkEditorPresented = true
+        requestTypingFocus()
     }
 
     func beginEditUsefulLink(_ link: UsefulLink) {
@@ -202,6 +227,7 @@ final class AppState: ObservableObject {
         linkEditorTitle = link.title
         linkEditorBody = link.urlOrText
         isLinkEditorPresented = true
+        requestTypingFocus()
     }
 
     func saveLinkEditor() {

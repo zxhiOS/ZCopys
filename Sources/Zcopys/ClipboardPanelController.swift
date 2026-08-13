@@ -19,9 +19,11 @@ final class ClipboardPanelController {
             .environmentObject(appState)
 
         let hostingController = NSHostingController(rootView: rootView)
+        // nonactivatingPanel keeps the previous app's focused field (e.g. App Store
+        // Connect web inputs) so ⌘V still lands in the right place after a click.
         panel = KeyablePanel(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 400),
-            styleMask: [.borderless, .fullSizeContentView],
+            styleMask: [.borderless, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -29,24 +31,26 @@ final class ClipboardPanelController {
         panel.isFloatingPanel = true
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.hidesOnDeactivate = true
+        panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.becomesKeyOnlyIfNeeded = false
+        panel.becomesKeyOnlyIfNeeded = true
         installKeyMonitor()
     }
 
     func showWindow() {
         layoutPanelAtBottomFullWidth()
+        // Do not activate / steal key focus — target app (Safari/Chrome) must keep
+        // the text field focused for paste into App Store Connect etc.
+        panel.orderFrontRegardless()
+    }
+
+    /// Become key only when the user needs to type (search / link editor).
+    func makeKeyForTyping() {
         NSApplication.shared.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        // Let SwiftUI mount the TextField, then request focus again.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.panel.makeKey()
-            self?.appState.shouldFocusSearch = true
-        }
     }
 
     func closeWindow() {

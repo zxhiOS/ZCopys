@@ -77,13 +77,20 @@ struct ContentView: View {
         }
         .onChange(of: appState.shouldFocusSearch) { _, newValue in
             guard newValue else { return }
+            appState.requestTypingFocus()
             appState.isSearchExpanded = true
             isSearchFocused = true
             appState.shouldFocusSearch = false
         }
         .onChange(of: appState.isSearchExpanded) { _, expanded in
             if expanded {
+                appState.requestTypingFocus()
                 isSearchFocused = true
+            }
+        }
+        .onChange(of: appState.isLinkEditorPresented) { _, presented in
+            if presented {
+                appState.requestTypingFocus()
             }
         }
         .animation(.snappy, value: appState.feedbackMessage != nil)
@@ -154,6 +161,7 @@ struct ContentView: View {
                 withAnimation(.snappy) {
                     appState.isSearchExpanded.toggle()
                     if appState.isSearchExpanded {
+                        appState.requestTypingFocus()
                         isSearchFocused = true
                     } else {
                         appState.collapseSearchIfNeeded()

@@ -45,30 +45,38 @@ final class ClipboardStore: ObservableObject {
 
     @discardableResult
     func copyToClipboard(_ item: ClipboardItem) -> Bool {
-        // macOS 14+ 要求在前台才能写入剪贴板
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        // Prefer writing without activating — activating steals focus from browser
+        // inputs (App Store Connect) and breaks the subsequent ⌘V paste.
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
 
-        let didWrite: Bool
-        switch item.kind {
-        case .file:
-            let urls = item.payload.split(separator: "\n").map(String.init).compactMap(URL.init(fileURLWithPath:))
-            guard !urls.isEmpty else { return false }
-            didWrite = pasteboard.writeObjects(urls as [NSURL])
-        case .image:
-            if let data = Data(base64Encoded: item.payload), let image = NSImage(data: data) {
-                didWrite = pasteboard.writeObjects([image])
-            } else {
-                didWrite = pasteboard.setString(item.value, forType: .string)
-            }
-        default:
-            didWrite = pasteboard.setString(item.payload, forType: .string)
+        var didWrite = write(item, to: pasteboard)
+        if !didWrite {
+            // Fallback: some macOS versions reject background pasteboard writes.
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            pasteboard.clearContents()
+            didWrite = write(item, to: pasteboard)
         }
 
         guard didWrite else { return false }
         markUsed(item)
         return true
+    }
+
+    private func write(_ item: ClipboardItem, to pasteboard: NSPasteboard) -> Bool {
+        switch item.kind {
+        case .file:
+            let urls = item.payload.split(separator: "\n").map(String.init).compactMap(URL.init(fileURLWithPath:))
+            guard !urls.isEmpty else { return false }
+            return pasteboard.writeObjects(urls as [NSURL])
+        case .image:
+            if let data = Data(base64Encoded: item.payload), let image = NSImage(data: data) {
+                return pasteboard.writeObjects([image])
+            }
+            return pasteboard.setString(item.value, forType: .string)
+        default:
+            return pasteboard.setString(item.payload, forType: .string)
+        }
     }
 
     func addFileURLs(_ urls: [URL]) {
