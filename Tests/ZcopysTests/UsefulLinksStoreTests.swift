@@ -79,6 +79,20 @@ final class UsefulLinksStoreTests: XCTestCase {
         }
     }
 
+    func testCategoryScopedDuplicatesAndFilter() {
+        withStore { store in
+            let work = UUID()
+            store.add(title: "A", urlOrText: "https://a.com", categoryId: nil)
+            store.add(title: "Work A", urlOrText: "https://a.com", categoryId: work)
+            XCTAssertEqual(store.items.count, 2)
+            XCTAssertEqual(store.filteredItems(matching: "", categoryId: nil).count, 1)
+            XCTAssertEqual(store.filteredItems(matching: "", categoryId: work).count, 1)
+            store.clear(categoryId: work)
+            XCTAssertEqual(store.items.count, 1)
+            XCTAssertEqual(store.items[0].categoryId, nil)
+        }
+    }
+
     private func withStore(_ body: (UsefulLinksStore) -> Void) {
         let storageURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("Zcopys-links-\(UUID().uuidString).json")

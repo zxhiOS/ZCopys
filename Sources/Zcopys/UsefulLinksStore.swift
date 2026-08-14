@@ -4,6 +4,9 @@ import Foundation
 final class UsefulLinksStore: ObservableObject {
     @Published private(set) var items: [UsefulLink] = []
 
+    /// Fired after local mutations so sync can upload.
+    var onChange: (() -> Void)?
+
     private let storageURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
@@ -14,25 +17,36 @@ final class UsefulLinksStore: ObservableObject {
     }
 
     @discardableResult
-    func add(title: String, urlOrText: String) -> Bool {
+    func add(title: String, urlOrText: String, categoryId: UUID? = nil) -> Bool {
         let body = urlOrText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return false }
         var resolvedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         if resolvedTitle.isEmpty {
             resolvedTitle = String(body.prefix(80))
         }
+        let now = Date()
 
-        if let index = items.firstIndex(where: { $0.urlOrText == body }) {
+        if let index = items.firstIndex(where: { $0.categoryId == categoryId && $0.urlOrText == body }) {
             items[index].title = resolvedTitle
-            items[index].lastUsedAt = Date()
+            items[index].lastUsedAt = now
+            items[index].updatedAt = now
             sortItems()
-            save()
+            persistAndNotify()
             return true
         }
 
-        items.append(UsefulLink(title: resolvedTitle, urlOrText: body))
+        items.append(
+            UsefulLink(
+                title: resolvedTitle,
+                urlOrText: body,
+                createdAt: now,
+                lastUsedAt: now,
+                updatedAt: now,
+                categoryId: categoryId
+            )
+        )
         sortItems()
-        save()
+        persistAndNotify()
         return true
     }
 
@@ -45,53 +59,82 @@ final class UsefulLinksStore: ObservableObject {
         if resolvedTitle.isEmpty {
             resolvedTitle = String(body.prefix(80))
         }
+        let categoryId = items[index].categoryId
+        let now = Date()
 
-        if let duplicateIndex = items.firstIndex(where: { $0.id != link.id && $0.urlOrText == body }) {
+        if let duplicateIndex = items.firstIndex(where: {
+            $0.id != link.id && $0.categoryId == categoryId && $0.urlOrText == body
+        }) {
             items[duplicateIndex].title = resolvedTitle
-            items[duplicateIndex].lastUsedAt = Date()
+            items[duplicateIndex].lastUsedAt = now
+            items[duplicateIndex].updatedAt = now
             items.remove(at: index)
             sortItems()
-            save()
+            persistAndNotify()
             return true
         }
 
         items[index].title = resolvedTitle
         items[index].urlOrText = body
-        items[index].lastUsedAt = Date()
+        items[index].lastUsedAt = now
+        items[index].updatedAt = now
         sortItems()
-        save()
+        persistAndNotify()
         return true
     }
 
     func delete(_ link: UsefulLink) {
         items.removeAll { $0.id == link.id }
-        save()
+        persistAndNotify()
+    }
+
+    func deleteAll(in categoryId: UUID) {
+        items.removeAll { $0.categoryId == categoryId }
+        persistAndNotify()
     }
 
     func togglePin(_ link: UsefulLink) {
         guard let index = items.firstIndex(where: { $0.id == link.id }) else { return }
         items[index].isPinned.toggle()
+        items[index].updatedAt = Date()
         sortItems()
-        save()
+        persistAndNotify()
     }
 
-    func clear() {
-        items.removeAll()
-        save()
+    func clear(categoryId: UUID? = nil) {
+        items.removeAll { $0.categoryId == categoryId }
+        persistAndNotify()
     }
 
     func markUsed(_ link: UsefulLink) {
         guard let index = items.firstIndex(where: { $0.id == link.id }) else { return }
-        items[index].lastUsedAt = Date()
+        let now = Date()
+        items[index].lastUsedAt = now
+        items[index].updatedAt = now
         sortItems()
-        save()
+        persistAndNotify()
     }
 
-    func filteredItems(matching query: String) -> [UsefulLink] {
-        guard !query.isEmpty else { return items }
-        return items.filter {
+    func filteredItems(matching query: String, categoryId: UUID? = nil) -> [UsefulLink] {
+        let scoped = items.filter { $0.categoryId == categoryId }
+        guard !query.isEmpty else { return scoped }
+        return scoped.filter {
             $0.title.localizedCaseInsensitiveContains(query)
                 || $0.urlOrText.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    func itemCount(in categoryId: UUID?) -> Int {
+        items.filter { $0.categoryId == categoryId }.count
+    }
+
+    /// Replace local set after a cloud merge (does not notify sync to avoid loops).
+    func replaceAll(_ newItems: [UsefulLink], notify: Bool = false) {
+        items = newItems
+        sortItems()
+        save()
+        if notify {
+            onChange?()
         }
     }
 
@@ -100,6 +143,11 @@ final class UsefulLinksStore: ObservableObject {
             if $0.isPinned != $1.isPinned { return $0.isPinned && !$1.isPinned }
             return $0.lastUsedAt > $1.lastUsedAt
         }
+    }
+
+    private func persistAndNotify() {
+        save()
+        onChange?()
     }
 
     private func load() {

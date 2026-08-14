@@ -14,8 +14,9 @@ import SwiftUI
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.image = Self.statusBarImage()
-            button.action = #selector(statusBarButtonClicked)
             button.target = self
+            button.action = #selector(statusBarButtonClicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
         // 启动测试数据
@@ -33,7 +34,25 @@ import SwiftUI
         }
     }
 
-    @objc private func statusBarButtonClicked() {
+    @objc private func statusBarButtonClicked(_ sender: NSStatusBarButton?) {
+        let event = NSApp.currentEvent
+        let isRightClick = event?.type == .rightMouseUp
+            || event?.modifierFlags.contains(.control) == true
+
+        if isRightClick {
+            showStatusMenu()
+            return
+        }
+
+        // Left click: toggle history panel
+        if panelController.isVisible {
+            panelController.closeWindow()
+        } else {
+            appState.showHistoryWindow()
+        }
+    }
+
+    private func showStatusMenu() {
         let menu = NSMenu()
 
         let historyItem = NSMenuItem(

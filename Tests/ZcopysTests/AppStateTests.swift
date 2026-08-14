@@ -11,10 +11,14 @@ final class AppStateTests: XCTestCase {
             .appendingPathComponent("appstate-clipboard-\(UUID().uuidString).json")
         let linksURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("appstate-links-\(UUID().uuidString).json")
+        let categoriesURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("appstate-categories-\(UUID().uuidString).json")
         appState = AppState(
             clipboardStorageURL: clipboardURL,
             usefulLinksStorageURL: linksURL,
-            startMonitors: false
+            categoriesStorageURL: categoriesURL,
+            startMonitors: false,
+            enableCloudKitSync: false
         )
     }
 

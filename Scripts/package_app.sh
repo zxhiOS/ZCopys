@@ -72,12 +72,65 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 </plist>
 PLIST
 
+# Entitlements: CloudKit is a restricted entitlement — macOS kills the app at
+# launch (RBS/163) unless the App ID has CloudKit enabled AND signing uses a
+# matching provisioning profile. Default: sign without iCloud so local installs
+# still launch. Set ENABLE_ICLOUD_ENTITLEMENTS=1 after Developer portal setup.
+ENTITLEMENTS_SRC="$ROOT_DIR/Resources/Zcopys.entitlements"
+ENTITLEMENTS_OUT="$CONTENTS_DIR/Zcopys.entitlements"
+ICLOUD_CONTAINER="iCloud.${BUNDLE_IDENTIFIER}"
+ENABLE_ICLOUD_ENTITLEMENTS="${ENABLE_ICLOUD_ENTITLEMENTS:-0}"
+
+# Always keep the full CloudKit entitlements file in Resources for reference /
+# when ENABLE_ICLOUD_ENTITLEMENTS=1.
+cat > "$ENTITLEMENTS_SRC" <<ENT
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.get-task-allow</key>
+	<true/>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>${ICLOUD_CONTAINER}</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
+</dict>
+</plist>
+ENT
+
+if [[ "$ENABLE_ICLOUD_ENTITLEMENTS" == "1" ]]; then
+    cp "$ENTITLEMENTS_SRC" "$ENTITLEMENTS_OUT"
+else
+    # Launch-safe entitlements (no restricted iCloud keys).
+    cat > "$ENTITLEMENTS_OUT" <<ENT
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.get-task-allow</key>
+	<true/>
+</dict>
+</plist>
+ENT
+fi
+
 if [[ -n "$SIGNING_IDENTITY" ]]; then
     echo "Signing with: $SIGNING_IDENTITY"
-    codesign --force --deep --sign "$SIGNING_IDENTITY" "$APP_DIR"
+    if [[ "$ENABLE_ICLOUD_ENTITLEMENTS" == "1" ]]; then
+        echo "iCloud entitlements ON (container: $ICLOUD_CONTAINER)"
+        echo "Requires App ID CloudKit + matching provisioning profile, or launch will fail."
+    else
+        echo "iCloud entitlements OFF (set ENABLE_ICLOUD_ENTITLEMENTS=1 after Apple Developer CloudKit setup)."
+    fi
+    codesign --force --deep --entitlements "$ENTITLEMENTS_OUT" --sign "$SIGNING_IDENTITY" "$APP_DIR"
 else
     echo "Warning: no Apple Development identity found; using ad-hoc signature."
     echo "Accessibility permission will NOT persist across rebuilds."
+    echo "CloudKit sync requires a real Apple Development / Developer ID signature."
     codesign --force --deep --sign - "$APP_DIR"
 fi
 

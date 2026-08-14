@@ -25,9 +25,30 @@
 - `Sources/Zcopys/ZcopysApp.swift`
 - `Sources/Zcopys/ContentView.swift`
 
-## 下一步
+## iCloud 同步（第一期）
 
-直接在项目根目录运行：
+同步范围：自定义分类 + Useful Links / 分类条目（不含剪贴板历史与图片）。
+
+### 开发者配置（必须）
+
+1. 在 [Apple Developer](https://developer.apple.com) 为 Bundle ID（默认 `com.local.zcopys`）开启 **iCloud → CloudKit**
+2. 创建容器：`iCloud.com.local.zcopys`（或与 `BUNDLE_IDENTIFIER` 对应的 `iCloud.<bundle>`）
+3. 准备匹配该 App ID（含 CloudKit）的签名与 provisioning profile，然后打包：
+   `ENABLE_ICLOUD_ENTITLEMENTS=1 INSTALL_TO_APPLICATIONS=1 ./Scripts/package_app.sh`
+   （默认打包不带 iCloud 受限 entitlements，避免本机无 profile 时无法启动）
+4. 本机登录同一 Apple ID / iCloud
+
+### 使用
+
+面板右上角 `⋯` 菜单：
+
+- 开关「iCloud 同步分类与链接」
+- 「立即同步」
+- 查看 iCloud 状态与上次同步时间
+
+两台 Mac 登录同一 Apple ID 后，分类与链接会双向合并（按 `updatedAt` 取新）。
+
+## 本地运行
 
 ```bash
 swift build

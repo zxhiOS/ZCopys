@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct ContentView: View {
     @EnvironmentObject private var appState: AppState
@@ -22,7 +23,9 @@ struct ContentView: View {
                     .padding(.bottom, 12)
 
                 ZStack {
-                    if appState.isLinkEditorPresented {
+                    if appState.isCategoryEditorPresented {
+                        categoryEditorOverlay
+                    } else if appState.isLinkEditorPresented {
                         linkEditorOverlay
                     } else {
                         cardGallery
@@ -86,11 +89,22 @@ struct ContentView: View {
             if expanded {
                 appState.requestTypingFocus()
                 isSearchFocused = true
+            } else {
+                appState.panelController?.refreshTapFlags()
             }
         }
         .onChange(of: appState.isLinkEditorPresented) { _, presented in
             if presented {
                 appState.requestTypingFocus()
+            } else {
+                appState.panelController?.refreshTapFlags()
+            }
+        }
+        .onChange(of: appState.isCategoryEditorPresented) { _, presented in
+            if presented {
+                appState.requestTypingFocus()
+            } else {
+                appState.panelController?.refreshTapFlags()
             }
         }
         .animation(.snappy, value: appState.feedbackMessage != nil)
@@ -116,19 +130,21 @@ struct ContentView: View {
 
                 usefulLinksTabButton
 
-                if appState.selectedTab == .usefulLinks {
-                    Button {
-                        appState.beginAddUsefulLink()
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.primary)
-                            .frame(width: 28, height: 28)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Add Useful Link")
+                ForEach(appState.categoryStore.categories) { category in
+                    customCategoryTabButton(category)
                 }
+
+                Button {
+                    appState.beginAddCategory()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Add Category")
             }
 
             Spacer(minLength: 0)
@@ -137,6 +153,23 @@ struct ContentView: View {
                 Button("Clear Current Tab", role: .destructive) {
                     appState.clearCurrentTab()
                 }
+                Divider()
+                Toggle("iCloud 同步分类与链接", isOn: Binding(
+                    get: { appState.syncEngine.isEnabled },
+                    set: { appState.syncEngine.isEnabled = $0 }
+                ))
+                Button(appState.syncEngine.isSyncing ? "同步中…" : "立即同步") {
+                    Task { await appState.syncEngine.syncNow(reason: "manual") }
+                }
+                .disabled(appState.syncEngine.isSyncing || !appState.syncEngine.isEnabled)
+                if let last = appState.syncEngine.lastSyncAt {
+                    Text("上次同步：\(last.formatted(date: .abbreviated, time: .shortened))")
+                }
+                Text(appState.syncEngine.accountStatusMessage)
+                if let error = appState.syncEngine.lastError {
+                    Text("错误：\(error)")
+                }
+                Divider()
                 if !appState.isAccessibilityTrusted {
                     Button("Request Accessibility Permission") {
                         appState.requestAccessibilityPermission()
@@ -207,7 +240,7 @@ struct ContentView: View {
             appState.syncSelection()
         } label: {
             HStack(spacing: 6) {
-                if !appState.usefulLinksStore.items.isEmpty {
+                if appState.usefulLinksStore.itemCount(in: nil) > 0 {
                     Circle()
                         .fill(Color.red)
                         .frame(width: 7, height: 7)
@@ -224,6 +257,50 @@ struct ContentView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private func customCategoryTabButton(_ category: PanelCategory) -> some View {
+        let isSelected = appState.selectedTab == .custom(category.id)
+        return HStack(spacing: 6) {
+            if appState.usefulLinksStore.itemCount(in: category.id) > 0 {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 7, height: 7)
+            }
+            Text(category.name)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+        }
+        .foregroundStyle(isSelected ? Color.white : Color.primary)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(
+            Capsule()
+                .fill(isSelected ? Color.black.opacity(0.85) : Color.clear)
+        )
+        .contentShape(Capsule())
+        .onTapGesture(count: 2) {
+            appState.beginRenameCategory(category)
+        }
+        .onTapGesture(count: 1) {
+            appState.selectedTab = .custom(category.id)
+            appState.syncSelection()
+        }
+        .contextMenu {
+            Button("Rename") {
+                appState.beginRenameCategory(category)
+            }
+            Button("Move Left") {
+                appState.moveCategory(category, left: true)
+            }
+            Button("Move Right") {
+                appState.moveCategory(category, left: false)
+            }
+            Divider()
+            Button("Delete", role: .destructive) {
+                appState.deleteCategory(category)
+            }
+        }
+        .help("单击选中，双击重命名")
     }
 
     private func tabButton(
@@ -267,16 +344,22 @@ struct ContentView: View {
             } else {
                 horizontalCards {
                     ForEach(Array(filteredClipboard.enumerated()), id: \.element.id) { index, item in
-                        Button {
-                            appState.activateClipboardItem(item)
-                        } label: {
-                            HistoryCard(
-                                item: item,
-                                index: index + 1,
-                                isSelected: item.id == appState.selectedItemID
-                            )
+                        HistoryCard(
+                            item: item,
+                            index: index + 1,
+                            isSelected: item.id == appState.selectedItemID
+                        )
+                        .id(item.id)
+                        .contentShape(Rectangle())
+                        .onDrag {
+                            DragExport.itemProvider(for: item)
                         }
-                        .buttonStyle(.plain)
+                        .onTapGesture(count: 2) {
+                            appState.activateClipboardItem(item)
+                        }
+                        .onTapGesture(count: 1) {
+                            appState.selectedItemID = item.id
+                        }
                         .contextMenu {
                             Button("Copy") {
                                 appState.activateClipboardItem(item)
@@ -284,8 +367,18 @@ struct ContentView: View {
                             Button(item.isPinned ? "Unpin" : "Pin") {
                                 appState.clipboardStore.togglePin(item)
                             }
-                            Button("Add to Useful Links") {
-                                appState.addClipboardItemToUsefulLinks(item)
+                            Menu("Add to…") {
+                                Button("Useful Links") {
+                                    appState.addClipboardItem(item, toCategoryId: nil)
+                                }
+                                if !appState.categoryStore.categories.isEmpty {
+                                    Divider()
+                                    ForEach(appState.categoryStore.categories) { category in
+                                        Button(category.name) {
+                                            appState.addClipboardItem(item, toCategoryId: category.id)
+                                        }
+                                    }
+                                }
                             }
                             Button("Delete", role: .destructive) {
                                 appState.delete(item)
@@ -294,40 +387,61 @@ struct ContentView: View {
                     }
                 }
             }
-        case .usefulLinks:
-            if filteredLinks.isEmpty {
-                emptyState(
-                    title: "No Useful Links",
-                    systemImage: "link",
-                    description: "Tap + to add a link, or favorite items from Clipboard"
-                )
-            } else {
-                horizontalCards {
-                    ForEach(Array(filteredLinks.enumerated()), id: \.element.id) { index, link in
-                        Button {
+        case .usefulLinks, .custom:
+            linkCategoryGallery
+        }
+    }
+
+    @ViewBuilder
+    private var linkCategoryGallery: some View {
+        let links = filteredLinks
+        let isCustom: Bool = {
+            if case .custom = appState.selectedTab { return true }
+            return false
+        }()
+        let emptyTitle = isCustom ? "No Items" : "No Useful Links"
+        let emptyDescription = isCustom
+            ? "Right-click a clipboard card → Add to… to save items here"
+            : "Right-click a clipboard card → Add to Useful Links, or use Add to…"
+
+        if links.isEmpty {
+            emptyState(
+                title: emptyTitle,
+                systemImage: "link",
+                description: emptyDescription
+            )
+        } else {
+            horizontalCards {
+                ForEach(Array(links.enumerated()), id: \.element.id) { index, link in
+                    LinkCard(
+                        link: link,
+                        index: index + 1,
+                        isSelected: link.id == appState.selectedItemID
+                    )
+                    .id(link.id)
+                    .contentShape(Rectangle())
+                    .onDrag {
+                        DragExport.itemProvider(for: link)
+                    }
+                    .onTapGesture(count: 2) {
+                        appState.activateUsefulLink(link)
+                    }
+                    .onTapGesture(count: 1) {
+                        appState.selectedItemID = link.id
+                    }
+                    .contextMenu {
+                        Button("Open / Copy") {
                             appState.activateUsefulLink(link)
-                        } label: {
-                            LinkCard(
-                                link: link,
-                                index: index + 1,
-                                isSelected: link.id == appState.selectedItemID
-                            )
                         }
-                        .buttonStyle(.plain)
-                        .contextMenu {
-                            Button("Open / Copy") {
-                                appState.activateUsefulLink(link)
-                            }
-                            Button("Edit") {
-                                appState.beginEditUsefulLink(link)
-                            }
-                            Button(link.isPinned ? "Unpin" : "Pin") {
-                                appState.usefulLinksStore.togglePin(link)
-                            }
-                            Button("Delete", role: .destructive) {
-                                appState.usefulLinksStore.delete(link)
-                                appState.syncSelection()
-                            }
+                        Button("Edit") {
+                            appState.beginEditUsefulLink(link)
+                        }
+                        Button(link.isPinned ? "Unpin" : "Pin") {
+                            appState.usefulLinksStore.togglePin(link)
+                        }
+                        Button("Delete", role: .destructive) {
+                            appState.usefulLinksStore.delete(link)
+                            appState.syncSelection()
                         }
                     }
                 }
@@ -336,12 +450,21 @@ struct ContentView: View {
     }
 
     private func horizontalCards<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 14) {
-                content()
+        let cards = content()
+        return ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 14) {
+                    cards
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 8)
+            .onChange(of: appState.selectedItemID) { _, newID in
+                guard let newID else { return }
+                withAnimation(.snappy) {
+                    proxy.scrollTo(newID, anchor: .center)
+                }
+            }
         }
     }
 
@@ -354,11 +477,11 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: - Link editor
+    // MARK: - Editors
 
     private var linkEditorOverlay: some View {
         VStack(spacing: 16) {
-            Text(appState.editingLinkID == nil ? "Add Useful Link" : "Edit Useful Link")
+            Text(appState.linkEditorHeading)
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 8) {
@@ -401,6 +524,45 @@ struct ContentView: View {
         .padding(24)
     }
 
+    private var categoryEditorOverlay: some View {
+        VStack(spacing: 16) {
+            Text(appState.categoryEditorHeading)
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Name")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                TextField("e.g. Work, Tokens", text: $appState.categoryEditorName)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            HStack {
+                Button("Cancel") {
+                    appState.cancelCategoryEditor()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Save") {
+                    appState.saveCategoryEditor()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(appState.categoryEditorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: 420)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.regularMaterial)
+                .shadow(color: .black.opacity(0.12), radius: 20, y: 8)
+        )
+        .padding(24)
+    }
+
     // MARK: - Data
 
     private var filteredClipboard: [ClipboardItem] {
@@ -408,7 +570,7 @@ struct ContentView: View {
     }
 
     private var filteredLinks: [UsefulLink] {
-        appState.usefulLinksStore.filteredItems(matching: appState.searchText)
+        appState.currentCategoryLinks()
     }
 }
 
@@ -439,14 +601,27 @@ struct HistoryCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(tone.color)
 
-            Text(item.value)
-                .font(.system(size: 13))
-                .foregroundStyle(.primary)
-                .lineLimit(8)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(12)
-                .background(Color.white)
+            Group {
+                if item.kind == .image, let nsImage = decodedImage {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .clipped()
+                        .background(Color.black.opacity(0.04))
+                } else {
+                    Text(item.value)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.primary)
+                        .lineLimit(8)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        .padding(12)
+                        .background(Color.white)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.white)
 
             HStack {
                 Text(CardPresentation.characterCountLabel(for: characterCountSource))
@@ -475,6 +650,14 @@ struct HistoryCard: View {
         default:
             return item.payload
         }
+    }
+
+    private var decodedImage: NSImage? {
+        guard item.kind == .image,
+              let data = Data(base64Encoded: item.payload) else {
+            return nil
+        }
+        return NSImage(data: data)
     }
 
     private var headerIcon: String {

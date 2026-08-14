@@ -1,9 +1,11 @@
 import Foundation
 import AppKit
+import Combine
 
-enum PanelTab {
+enum PanelTab: Equatable, Hashable {
     case clipboard
     case usefulLinks
+    case custom(UUID)
 }
 
 @MainActor
@@ -19,13 +21,20 @@ final class AppState: ObservableObject {
     @Published var linkEditorTitle = ""
     @Published var linkEditorBody = ""
     @Published var editingLinkID: UsefulLink.ID?
+    @Published var linkEditorCategoryID: UUID?
+    @Published var isCategoryEditorPresented = false
+    @Published var categoryEditorName = ""
+    @Published var editingCategoryID: UUID?
 
     let clipboardStore: ClipboardStore
     let usefulLinksStore: UsefulLinksStore
+    let categoryStore: CategoryStore
+    let syncEngine: CloudKitSyncEngine
     var panelController: ClipboardPanelController?
     /// App that was frontmost before the panel opened — paste target after selecting a card.
     private var previousFrontmostApp: NSRunningApplication?
     private var frontmostAppObserver: NSObjectProtocol?
+    private var cancellables = Set<AnyCancellable>()
     lazy var hotkeyMonitor = HotkeyMonitor { [weak self] in
         self?.showHistoryWindow()
     }
@@ -44,14 +53,41 @@ final class AppState: ObservableObject {
     init(
         clipboardStorageURL: URL? = nil,
         usefulLinksStorageURL: URL? = nil,
-        startMonitors: Bool = true
+        categoriesStorageURL: URL? = nil,
+        startMonitors: Bool = true,
+        enableCloudKitSync: Bool? = nil
     ) {
         clipboardStore = ClipboardStore(storageURL: clipboardStorageURL)
         usefulLinksStore = UsefulLinksStore(storageURL: usefulLinksStorageURL)
+        categoryStore = CategoryStore(storageURL: categoriesStorageURL)
+        // Unit tests pass startMonitors: false — never construct CKContainer in XCTest.
+        let cloudKitOn = enableCloudKitSync ?? startMonitors
+        syncEngine = CloudKitSyncEngine(
+            categoryStore: categoryStore,
+            usefulLinksStore: usefulLinksStore,
+            usesCloudKit: cloudKitOn
+        )
+        syncEngine.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+        // Also refresh UI when category/link stores change from sync merge.
+        categoryStore.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        usefulLinksStore.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
         if startMonitors {
             isAccessibilityTrusted = hotkeyMonitor.isAccessibilityTrusted
             startMonitoring()
             observeFrontmostAppChanges()
+            syncEngine.start()
         }
     }
 
@@ -110,9 +146,8 @@ final class AppState: ObservableObject {
             guard let item = clipboardStore.filteredItems(matching: searchText)
                 .first(where: { $0.id == selectedItemID }) else { return }
             activateClipboardItem(item)
-        case .usefulLinks:
-            guard let link = usefulLinksStore.filteredItems(matching: searchText)
-                .first(where: { $0.id == selectedItemID }) else { return }
+        case .usefulLinks, .custom:
+            guard let link = currentCategoryLinks().first(where: { $0.id == selectedItemID }) else { return }
             activateUsefulLink(link)
         }
     }
@@ -210,22 +245,45 @@ final class AppState: ObservableObject {
     }
 
     func addClipboardItemToUsefulLinks(_ item: ClipboardItem) {
-        usefulLinksStore.add(title: String(item.value.prefix(80)), urlOrText: item.payload)
-        showFeedback("已加入 Useful Links")
+        addClipboardItem(item, toCategoryId: nil)
     }
 
+    func addClipboardItem(_ item: ClipboardItem, toCategoryId categoryId: UUID?) {
+        usefulLinksStore.add(
+            title: String(item.value.prefix(80)),
+            urlOrText: item.payload,
+            categoryId: categoryId
+        )
+        if let categoryId,
+           let name = categoryStore.categories.first(where: { $0.id == categoryId })?.name {
+            showFeedback("已加入 \(name)")
+        } else {
+            showFeedback("已加入 Useful Links")
+        }
+    }
+
+    // MARK: - Link editor
+
     func beginAddUsefulLink() {
+        beginAddLink(categoryId: currentLinkCategoryID)
+    }
+
+    func beginAddLink(categoryId: UUID?) {
         editingLinkID = nil
+        linkEditorCategoryID = categoryId
         linkEditorTitle = ""
         linkEditorBody = ""
+        isCategoryEditorPresented = false
         isLinkEditorPresented = true
         requestTypingFocus()
     }
 
     func beginEditUsefulLink(_ link: UsefulLink) {
         editingLinkID = link.id
+        linkEditorCategoryID = link.categoryId
         linkEditorTitle = link.title
         linkEditorBody = link.urlOrText
+        isCategoryEditorPresented = false
         isLinkEditorPresented = true
         requestTypingFocus()
     }
@@ -236,7 +294,11 @@ final class AppState: ObservableObject {
            let link = usefulLinksStore.items.first(where: { $0.id == editingLinkID }) {
             didSave = usefulLinksStore.update(link, title: linkEditorTitle, urlOrText: linkEditorBody)
         } else {
-            didSave = usefulLinksStore.add(title: linkEditorTitle, urlOrText: linkEditorBody)
+            didSave = usefulLinksStore.add(
+                title: linkEditorTitle,
+                urlOrText: linkEditorBody,
+                categoryId: linkEditorCategoryID
+            )
         }
         guard didSave else { return }
         cancelLinkEditor()
@@ -246,8 +308,61 @@ final class AppState: ObservableObject {
     func cancelLinkEditor() {
         isLinkEditorPresented = false
         editingLinkID = nil
+        linkEditorCategoryID = nil
         linkEditorTitle = ""
         linkEditorBody = ""
+        panelController?.refreshTapFlags()
+    }
+
+    // MARK: - Category editor
+
+    func beginAddCategory() {
+        editingCategoryID = nil
+        categoryEditorName = ""
+        isLinkEditorPresented = false
+        isCategoryEditorPresented = true
+        requestTypingFocus()
+    }
+
+    func beginRenameCategory(_ category: PanelCategory) {
+        editingCategoryID = category.id
+        categoryEditorName = category.name
+        isLinkEditorPresented = false
+        isCategoryEditorPresented = true
+        requestTypingFocus()
+    }
+
+    func saveCategoryEditor() {
+        if let editingCategoryID,
+           let category = categoryStore.categories.first(where: { $0.id == editingCategoryID }) {
+            guard categoryStore.rename(category, to: categoryEditorName) else { return }
+        } else {
+            guard let created = categoryStore.add(name: categoryEditorName) else { return }
+            selectedTab = .custom(created.id)
+        }
+        cancelCategoryEditor()
+        syncSelection()
+    }
+
+    func cancelCategoryEditor() {
+        isCategoryEditorPresented = false
+        editingCategoryID = nil
+        categoryEditorName = ""
+        panelController?.refreshTapFlags()
+    }
+
+    func deleteCategory(_ category: PanelCategory) {
+        usefulLinksStore.deleteAll(in: category.id)
+        categoryStore.delete(category)
+        if case .custom(let id) = selectedTab, id == category.id {
+            selectedTab = .usefulLinks
+        }
+        syncSelection()
+        showFeedback("已删除分类")
+    }
+
+    func moveCategory(_ category: PanelCategory, left: Bool) {
+        categoryStore.move(category, left: left)
     }
 
     func clearCurrentTab() {
@@ -255,7 +370,10 @@ final class AppState: ObservableObject {
         case .clipboard:
             clearHistory()
         case .usefulLinks:
-            usefulLinksStore.clear()
+            usefulLinksStore.clear(categoryId: nil)
+            selectedItemID = nil
+        case .custom(let id):
+            usefulLinksStore.clear(categoryId: id)
             selectedItemID = nil
         }
     }
@@ -263,12 +381,28 @@ final class AppState: ObservableObject {
     func collapseSearchIfNeeded() {
         if searchText.isEmpty {
             isSearchExpanded = false
+            panelController?.refreshTapFlags()
         }
+    }
+
+    func dismissPanel() {
+        isCategoryEditorPresented = false
+        editingCategoryID = nil
+        categoryEditorName = ""
+        isLinkEditorPresented = false
+        editingLinkID = nil
+        linkEditorCategoryID = nil
+        linkEditorTitle = ""
+        linkEditorBody = ""
+        clearSearch()
+        panelController?.closeWindow()
     }
 
     func clearSearch() {
         searchText = ""
+        isSearchExpanded = false
         selectedItemID = activeItemIDs().first
+        panelController?.refreshTapFlags()
     }
 
     func delete(_ item: ClipboardItem) {
@@ -300,12 +434,38 @@ final class AppState: ObservableObject {
         clipboardStore.filteredItems(matching: searchText).first { $0.id == selectedItemID }
     }
 
+    var linkEditorHeading: String {
+        if editingLinkID != nil {
+            return currentLinkCategoryID == nil ? "Edit Useful Link" : "Edit Item"
+        }
+        return currentLinkCategoryID == nil ? "Add Useful Link" : "Add Item"
+    }
+
+    var categoryEditorHeading: String {
+        editingCategoryID == nil ? "New Category" : "Rename Category"
+    }
+
+    func currentCategoryLinks() -> [UsefulLink] {
+        usefulLinksStore.filteredItems(matching: searchText, categoryId: currentLinkCategoryID)
+    }
+
+    private var currentLinkCategoryID: UUID? {
+        switch selectedTab {
+        case .usefulLinks:
+            return nil
+        case .custom(let id):
+            return id
+        case .clipboard:
+            return nil
+        }
+    }
+
     private func activeItemIDs() -> [UUID] {
         switch selectedTab {
         case .clipboard:
             return clipboardStore.filteredItems(matching: searchText).map(\.id)
-        case .usefulLinks:
-            return usefulLinksStore.filteredItems(matching: searchText).map(\.id)
+        case .usefulLinks, .custom:
+            return currentCategoryLinks().map(\.id)
         }
     }
 
