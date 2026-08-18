@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 @testable import Zcopys
 
 @MainActor
@@ -130,5 +131,24 @@ final class AppStateTests: XCTestCase {
         appState.saveLinkEditor()
         XCTAssertFalse(appState.isLinkEditorPresented)
         XCTAssertEqual(appState.usefulLinksStore.items.count, 1)
+    }
+
+    func testClipboardStoreChangesNotifyAppState() {
+        let notified = expectation(description: "AppState observes clipboardStore")
+        notified.assertForOverFulfill = false
+        var didNotify = false
+        let cancellable = appState.objectWillChange.sink { _ in
+            didNotify = true
+            notified.fulfill()
+        }
+        defer { _ = cancellable }
+
+        appState.clipboardStore.addText("fresh copy")
+        wait(for: [notified], timeout: 1)
+
+        XCTAssertTrue(
+            didNotify,
+            "ContentView observes AppState, so clipboardStore must forward objectWillChange"
+        )
     }
 }

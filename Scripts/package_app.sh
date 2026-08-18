@@ -34,10 +34,22 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
 cp "$BUILD_DIR/$APP_NAME" "$MACOS_DIR/$APP_NAME"
 cp "$ROOT_DIR/dist/Zcopys.icns" "$ICON_FILE"
-# Menu bar icons for Bundle.main
+# Menu bar icons for Bundle.main (Contents/Resources).
+# Do NOT copy Zcopys_Zcopys.bundle to the .app root: codesign then fails
+# with "unsealed contents present in the bundle root".
+# SPM's Bundle.module looks at that illegal root path, then a hardcoded
+# .build path that only exists on this machine — so never call Bundle.module
+# in the packaged app.
 cp "$ROOT_DIR/Assets/StatusBarIcon.png" "$RESOURCES_DIR/StatusBarIcon.png"
 cp "$ROOT_DIR/Assets/StatusBarIcon@2x.png" "$RESOURCES_DIR/StatusBarIcon@2x.png"
 chmod +x "$MACOS_DIR/$APP_NAME"
+
+SPM_RESOURCE_BUNDLE="$BUILD_DIR/${APP_NAME}_${APP_NAME}.bundle"
+if [[ ! -d "$SPM_RESOURCE_BUNDLE" ]]; then
+    echo "Missing SPM resource bundle: $SPM_RESOURCE_BUNDLE" >&2
+    exit 1
+fi
+ditto "$SPM_RESOURCE_BUNDLE" "$RESOURCES_DIR/${APP_NAME}_${APP_NAME}.bundle"
 
 cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

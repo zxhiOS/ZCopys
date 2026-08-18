@@ -73,7 +73,13 @@ final class AppState: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
-        // Also refresh UI when category/link stores change from sync merge.
+        // Nested stores are separate ObservableObjects. ContentView only
+        // observes AppState, so forward their changes or the panel stays stale
+        // until it is opened again.
+        clipboardStore.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
         categoryStore.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.objectWillChange.send() }
@@ -98,9 +104,12 @@ final class AppState: ObservableObject {
 
     func showHistoryWindow() {
         rememberPreviousFrontmostApp()
+        // Capture ⌘C that happened just before the hotkey, before the 0.1s delay.
+        clipboardMonitor.poll()
         // 延迟 0.1s 等 NSMenu 完全关闭后再显示面板
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
             guard let self else { return }
+            self.clipboardMonitor.poll()
             self.panelController?.showWindow()
             // Do not auto-focus search — that steals key focus from browser inputs
             // (App Store Connect) and breaks auto-paste.

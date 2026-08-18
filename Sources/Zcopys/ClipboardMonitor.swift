@@ -22,9 +22,11 @@ final class ClipboardMonitor {
 
     func start() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
             self?.poll()
         }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
 
     func stop() {
@@ -32,7 +34,10 @@ final class ClipboardMonitor {
         timer = nil
     }
 
-    private func poll() {
+    /// Reads the pasteboard on the current run loop turn. Must be synchronous:
+    /// `Task { @MainActor in }` would hop a frame, so ⌘⇧V right after ⌘C showed
+    /// a stale panel until the next open.
+    func poll() {
         guard pasteboard.changeCount != lastChangeCount else { return }
         lastChangeCount = pasteboard.changeCount
 
@@ -40,22 +45,28 @@ final class ClipboardMonitor {
             .urlReadingFileURLsOnly: true
         ]
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: fileURLReadingOptions) as? [URL], !urls.isEmpty {
-            Task { @MainActor in
-                onFileCopy(urls)
-            }
+            invokeOnMain { self.onFileCopy(urls) }
             return
         }
 
-        if let image = NSImage(pasteboard: pasteboard) {
-            Task { @MainActor in
-                onImageCopy(image)
-            }
+        if let image = NSImage(pasteboard: pasteboard), pasteboard.string(forType: .string) == nil {
+            invokeOnMain { self.onImageCopy(image) }
             return
         }
 
         if let text = pasteboard.string(forType: .string) {
-            Task { @MainActor in
-                onTextCopy(text)
+            invokeOnMain { self.onTextCopy(text) }
+        } else if let image = NSImage(pasteboard: pasteboard) {
+            invokeOnMain { self.onImageCopy(image) }
+        }
+    }
+
+    private func invokeOnMain(_ body: @escaping @MainActor () -> Void) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated(body)
+        } else {
+            DispatchQueue.main.sync {
+                MainActor.assumeIsolated(body)
             }
         }
     }

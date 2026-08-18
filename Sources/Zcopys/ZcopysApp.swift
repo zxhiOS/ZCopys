@@ -123,10 +123,14 @@ import SwiftUI
     }
 
     private static func statusBarImage() -> NSImage {
+        // Do not use Bundle.module here: SPM's generated accessor fatalErrors if
+        // Zcopys_Zcopys.bundle is missing from the .app root (an illegal codesign
+        // location). Packaged resources live in Contents/Resources instead.
+        let moduleBundle = Bundle.main.resourceURL?.appendingPathComponent("Zcopys_Zcopys.bundle")
         let candidates: [URL?] = [
-            Bundle.module.url(forResource: "StatusBarIcon", withExtension: "png"),
             Bundle.main.url(forResource: "StatusBarIcon", withExtension: "png"),
-            Bundle.main.resourceURL?.appendingPathComponent("StatusBarIcon.png")
+            Bundle.main.resourceURL?.appendingPathComponent("StatusBarIcon.png"),
+            moduleBundle.flatMap { Bundle(url: $0)?.url(forResource: "StatusBarIcon", withExtension: "png") }
         ]
 
         for case let url? in candidates {
